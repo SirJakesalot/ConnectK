@@ -14,4 +14,4 @@ You may notice the DunamisAI runs faster with gravity enabled, this is because I
 
 
 ![alt BoardHeuristics](BoardHeuristics.png)
-Here is a brief example of how I go about using heuristics to score a connect-k board.
+<br>Here is a brief example of how I go about using heuristics to score a connect-k board.
