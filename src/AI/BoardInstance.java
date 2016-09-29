@@ -4,8 +4,10 @@ public class BoardInstance {
 	double score;
 	Point bestMove;
 	int depth;
-	public BoardInstance(double totalScore) {
+
+	public BoardInstance(double totalScore, int currentDepth) {
 		score = totalScore;
+        depth = currentDepth;
 	}
 	public double getScore() {
 		return score;
@@ -13,5 +15,4 @@ public class BoardInstance {
 	public Point getBestMv() {
 		return bestMove;
 	}
-	
 }

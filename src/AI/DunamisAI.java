@@ -11,30 +11,32 @@ import java.util.Random;
 
 public class DunamisAI extends CKPlayer{
 
+    /*
+     * Known Issues
+     * Settings: AI goes first
+     * Moves: [(4,4), (5,3), (6,2), (1,0)]
+     * Desc: Will take too long to return a move
+     */
+
 	double WIN = Double.POSITIVE_INFINITY;
 	double LOSS = Double.NEGATIVE_INFINITY;
 
+	byte player;
+	byte opponent;
+
+    /* max number future moves to observe */ 
+	int maxDepth = 5;
 	/* move counter for the game */
 	int moveCount = 0;
-    /* hashmap key for which beginning playbook to use */
-	String playBookKey = "";
-    /* remember play in the playBook */
-	int playBookIndex = 0;
-    /* flag when to exit the playBook */
-	boolean exitPlayBook = false;
     /* best possible move found */ 
 	Point bestMove;
     /* remember the current move sequence */
 	Point[] movSeq = new Point[maxDepth];
-    /* max number future moves to observe */ 
-	int maxDepth = 5;
     /* center of the board*/
 	Point center;
     /* for gravity enabled, records column heights as the game plays */
 	int[] boardHeights;
     /* 0 or 1 for the player or the opponent */	
-	byte player;
-	byte opponent;
 
     /* hashmap of possible moves in the game */
 	HashSet<Point> freeSpaces = new HashSet<Point>();
@@ -43,7 +45,7 @@ public class DunamisAI extends CKPlayer{
     /* hashmap of all available playBooks */
 	Map<String, Point[][]> playBook = new HashMap<String, Point[][]>();
 
-    /* attempting to use zobrist keys and transposition tables */
+    /* attempting optimization of zobrist keys and transposition tables */
 	long[][] zobrist;
 	Map<Long, BoardInstance> transpositionTable = new HashMap<Long, BoardInstance>();
 
@@ -62,9 +64,6 @@ public class DunamisAI extends CKPlayer{
 		if (player == 1) {opponent = 2;} else {opponent = 1;}
 		/* record of current column maximums */
 		genBoardHeights(state.getWidth());
-		/* choosing start move play book */
-		genPlayBooks();
-		playBookKey = choosePlayBook(state);
 		/* initiate the ability to compute Zobrist keys for each board positions */
 		initZobrist(state.getWidth(), state.getHeight());
         /* fill freeSpaces with all possible moves */
@@ -84,30 +83,6 @@ public class DunamisAI extends CKPlayer{
 	}
 
     /**
-     * genPlayBooks will create an array of options for various game openers.
-     * Currently only used to play pieces in the center of the board but could
-     * be used for more advanced game openers.
-     */
-	void genPlayBooks() {
-		/* gravity enabled play book */
-		Point [][] GEPB = {{new Point(center.x, 0), new Point(center.x - 1, 0)}};
-		/* gravity disabled play book */
-		Point [][] GDPB = {{center, new Point(center.x - 1, center.y)}};
-		/* record play books */
-		playBook.put("GEPB", GEPB);
-		playBook.put("GDPB", GDPB);
-	}
-
-    /**
-     * Choose which playbook to use based on the gravity setting.
-     * @param state the current state of the board
-     * @return String representing the key for the playbooks hashmap
-     */
-	public String choosePlayBook(BoardModel state) {
-		return state.gravityEnabled() ? "GEPB" : "GDPB";
-	}
-
-    /**
      * Based on the current game state, determine the best move to make.
      * @param state the current state of the game
      * @return the best possible move for the player
@@ -117,28 +92,16 @@ public class DunamisAI extends CKPlayer{
 		/* if not the first move of the game, record the last move made */
 		if (state.getLastMove() != null) {
 			recordMove(state.getLastMove(), state.gravityEnabled(), state.getHeight(), opponent, false);
-		}
-
-        /* check if we are still in the playbook */
-		if (!exitPlayBook) {
-            /* loop over the playbook moves at the current playbook index */
-			for (Point mv : playBook.get(playBookKey)[playBookIndex]) {
-				if (state.getSpace(mv) == 0) {
-					++playBookIndex;
-					/* if fully executed the playBook, exit playBook */
-					exitPlayBook = playBookIndex == playBook.get(playBookKey).length ? true : false;
-					recordMove(mv, state.gravityEnabled(), state.getHeight(), player, false);
-					return mv;
-				}
-			}
-		}
-        /* flag that the playbook is over */
-		exitPlayBook = true;
+		} else {
+            if (state.getSpace(center) == 0) {
+                recordMove(center, state.gravityEnabled(), state.getHeight(), player, false);
+                return center;
+            }
+        }
 		
-		// System.out.println("BEST SCORE IN " + maxDepth + " MOVES: " + alpha_beta(state, maxDepth, player,  LOSS, WIN));
-		// System.out.println("Best Move Sequence: " + bestMoveSeq());
-		alpha_beta(state, maxDepth, player, LOSS, WIN);
-		// System.out.println("Best Move: " + bestMove);
+        
+		double ab = alpha_beta(state, maxDepth, player, LOSS, WIN);
+        // System.out.println("BEST SCORE IN " + maxDepth + " MOVES: " + ab );
 		recordMove(bestMove, state.gravityEnabled(), state.getHeight(), player, false);
 		return bestMove;
 	}
@@ -182,8 +145,25 @@ public class DunamisAI extends CKPlayer{
 			}
 		
 		} else {
-            /* gravity disabled leaves the whole board open for moves, add all available spaces */
-			possibleMoves.addAll(freeSpaces);
+            /* gravity disabled will add all empty spaces surrounding the moves already made */
+            Point mv;
+            Point[] surroundingMvs = new Point[8];
+            for (Map.Entry<Point, Byte> entry : movesThusFar.entrySet()) {
+                mv = entry.getKey();
+                surroundingMvs[0] = new Point(mv.x, mv.y + 1);
+                surroundingMvs[1] = new Point(mv.x + 1, mv.y + 1);
+                surroundingMvs[2] = new Point(mv.x + 1, mv.y);
+                surroundingMvs[3] = new Point(mv.x + 1, mv.y - 1);
+                surroundingMvs[4] = new Point(mv.x, mv.y - 1);
+                surroundingMvs[5] = new Point(mv.x - 1, mv.y - 1);
+                surroundingMvs[6] = new Point(mv.x - 1, mv.y);
+                surroundingMvs[7] = new Point(mv.x - 1, mv.y + 1);
+                for (Point p: surroundingMvs) {
+                    if (freeSpaces.contains(p) && !possibleMoves.contains(p)) {
+                        possibleMoves.add(p);
+                    }
+                }
+            }
 		}
 		if (print) {
             String possMovString = "Possible moves: ";
@@ -264,56 +244,77 @@ public class DunamisAI extends CKPlayer{
      * @param beta the beta value for the search
      */
 	public double alpha_beta(BoardModel state, int depth, byte turn, double alpha, double beta) {
-		// System.out.println("AT DEPTH: " + depth);
+        // System.out.println("AT DEPTH: " + depth);
 
-		/*
+        if (state.winner() != -1) {
+            // transpositionTable.put(key, new BoardInstance(LOSS));
+            // System.out.println("Determined winner based on: " + moveSeqToString(movSeq));
+            double score = 10000 + 10000 * depth;
+            if (state.winner() == turn) { return score; }
+            return -score;
+        }
+
+        Point bestMv = null;
+        /* computes based on moves made thus far */
         long key = computeZobristKey(state.getWidth(), state.getHeight());
         BoardInstance bi = transpositionTable.get(key);
-        if (bi != null) {}
-        */
 
-        /* determine who's turn it is next */
-		byte nextTurn = turn == player ? opponent : player;
-		double heuristic;
-		if (depth == 0 || state.winner() != -1 || !state.hasMovesLeft() ) {
-            /* reached the max depth, get the heuristic for the current state */
-			// System.out.println("MovSeq: " + moveSeqToString(movSeq));
-			heuristic = new BoardHeuristic(player, opponent, state, movesThusFar).getTotalScore();
-			return heuristic;
-		}
-        
-        /* not at max depth, need to keep diving */
-		Queue<Point> possMvs = genPossMoves(state, false);
-		double best = LOSS;
-		Point mv = null;
-		BoardModel nextBoard;
-	
-        /* loop over possible moves and continue diving */ 	
-		while (!possMvs.isEmpty()) {
-            /* remove a move from the queue */
-			mv = possMvs.remove();
-            /* record that move in the current move sequence */
-			movSeq[depth-1] = mv;
-            /* change the current state by adding that possible move */
-			nextBoard = state.placePiece(mv, turn);
-            /* record that move */
-			recordMove(mv, state.gravityEnabled(), state.getHeight(), turn, false);
+        if (bi != null) {
+            /* already calculated! */
+            return bi.getScore();
+        }
 
-            /* recurse to find the heuristic value for that move */
-			heuristic = alpha_beta(nextBoard, depth-1, nextTurn, -beta, -alpha);
-            /* remove the move that was purposed */
-			removeMove(mv, state.gravityEnabled(), false);
-			// System.out.print("\n");
-			/* if the move beat the current best move, record it */
-			if (heuristic > best) {
-				best = heuristic;
-				if (depth == maxDepth) { bestMove = mv; }
-			}
-			if (best > alpha) { alpha = best; }
-			if (best >= beta) { break; }
-			
-		}
-		return best;
+        byte nextTurn = turn == player ? opponent : player;
+        double value;
+
+        if (depth == 0 || !state.hasMovesLeft() ) {
+            value = new BoardHeuristic(turn, nextTurn, state, movesThusFar).getTotalScore();
+            // System.out.println("MoveSeq: " + moveSeqToString(movSeq) + "Score: " + value);
+            transpositionTable.put(key, new BoardInstance(value, 0));
+            return value;
+        }
+        Queue<Point> possMvs = genPossMoves(state, false);
+        double best = LOSS;
+        Point mv = null;
+        BoardModel nextBoard;
+
+        // Long key = computeZobristkey(state.getWidth(), state.getHeight());
+        // BoardInstance bi = transpositionTable.get(key);
+        // if (bi != null && bi.depth <= depth) {
+        //     System.out.println("This has been calculated before!");
+        //     return bi.getScore();
+        // }
+
+        while (!possMvs.isEmpty()) {
+            mv = possMvs.remove();
+            movSeq[depth-1] = mv;
+            nextBoard = state.placePiece(mv, turn);
+            recordMove(mv, state.gravityEnabled(), state.getHeight(), turn, false);
+            value = -alpha_beta(nextBoard, depth-1, nextTurn, -beta, -alpha);
+            removeMove(mv, state.gravityEnabled(), false);
+
+            if (value > best) {
+                // System.out.println("Found that " + value + " > " + best);
+                best = value;
+                if (depth == maxDepth) {
+                    // System.out.println("Updating new bestMove to: x=" + mv.x + ",y=" + mv.y);
+                    bestMv = mv;
+                }
+            }
+            if (best > alpha) { alpha = best; }
+            if (best >= beta) {
+                if (best == WIN && beta == WIN) {
+                }
+                // System.out.println("PRUNING!");
+                break;
+            }
+        }
+        if (depth == maxDepth && bestMv != null) {
+            bestMove = bestMv;
+        }
+        return best;
+
+
 	}
 	
     /**
